@@ -1,0 +1,199 @@
+---
+title: "Biased Case Sampling Adjustment"
+csl: nature.csl
+output:
+  html_notebook:
+    toc: yes
+    toc_float: yes
+  html_document:
+    toc: yes
+    toc_float: yes
+bibliography: citations.bib
+---
+# Abstract
+- Polygenic Risk score important
+- Most often defined using $R^2$
+- Previous study has provide a nice adjustment for $R^2$ for case control ascertainment bias
+- However, they assume a random sampling of case and control in the population
+- In reality, cases are usually biased in their sampling. i.e in biobank settings, samples tends to be more healthy
+- Therefore there is a need for $R^2$ adjustment that are robust towards biased sampling of cases
+- Here we provide this method which "works?"
+
+# Introduction
+
+```{r setup, include=FALSE}
+library(knitr)
+opts_chunk$set(cache=TRUE)
+library(ggplot2)
+library(grid)
+library(plyr)
+library(RColorBrewer)
+library(truncnorm)
+library(dplyr)
+library(reshape2)
+library(compiler)
+setCompilerOptions(optimize=3)
+```
+
+# Methodology
+To adjuts for the ascertainment bias in the cases, we assume that
+
+1. The population prevalence ($K$) of the trait is known
+2. The controls are randomly sampled form the unaffected population
+
+Follow the liability threshold model, the liability of disease ($P$) is assumed to follow a standard normal distirbution with mean ($\mu$) 0 and variance ($\sigma^2$) 1 and is the sum of the environmental ($E$) and additive genetic factors ($G$) sampled from independent normal distributions[@falconer_inheritance_1965]. 
+
+For a trait with heritability of $h^2$, the liability threshold model can be written as
+\begin{align}
+    P &\sim N(\mu_p=0, \sigma^2_p=1) \\
+    G &\sim N(\mu_g=0, \sigma^2_g=h^2) \\
+    E &\sim N(\mu_e=0, \sigma^2_e=(1-h^2)) \\
+    P &= G+E
+\end{align}
+
+We then assume the distirbution of polygenic risk score ($S$) is $S\sim N(\mu=\mu_s, \sigma^2=\sigma^2_s)$ such that we have
+\begin{align}
+    G &= S+\epsilon \\
+    P &= S+E+\epsilon
+\end{align}
+
+Under the liability threhsold model, only individuals with liability above the liability threshold ($t$) will exhibit the disease phenotype. 
+Therefore the liability of the affected and unaffected samples both follow a truncated normal distribution.
+Given a populatoin prevalence of $K$, we have
+\begin{align}
+E[P | P>t] &= \frac{z}{K} \\
+&= i\\
+E[P | P<t] &= -\frac{z}{1-K} \\
+&= -\frac{iK}{1-K}\\
+Var(P|P>t) &= 1-E[P|P>t]^2+E[P|P>t]t \\
+&= 1-i^2+it \\
+&=1-i(i+t)\\
+Var(P|P<t) &=1-E[P|P<t]^2+E[P|P<t]t\\
+&=1-\frac{z^2}{(1-K)^2}-\frac{z}{1-K}t\\
+&=1-\frac{iK}{1-K}\left(\frac{iK}{1-K}+t\right)
+\end{align}
+with $z$ as the height of the standard normal distribution at point $t$.
+
+Using the Pearson Aitken Selection Formula[@pearson_mathematical_1903;@aitken_note_1935], we can obtain the moments of $S$ in affected ($a$) and unaffected ($u$) samples as
+\begin{align}
+\mu_{sa}&= \mu_s+R^2\mu_{pa}\\
+\mu_{su}&= \mu_s+R^2\mu_{pu}\\
+\sigma^2_{sa}&=\sigma^2_{s}-(R^2)^2(1-\sigma^2_{pa})\\
+&=R^2\left(1-R^2(1-\sigma^2_{pa})\right)\\
+\sigma^2_{su}&=\sigma^2_{s}-(R^2)^2(1-\sigma^2_{pu})\\
+&=R^2\left(1-R^2(1-\sigma^2_{pu})\right)
+\end{align}
+
+Generally, a polygenic risk score analysis will calculate the $R^2$ of the PRS model and generate the PRS estimate for each individual.
+This allow direct substitute of the observed $R^2$ and the mean/variance of the polygenic score in the case and control samples into the above equation. 
+At the same time, by assuming a random sampling of the controls, the mean and variance of the liability of the control can be directly estimated.
+Thus, it is possible to determine the direction of bias in sampling of cases by calculating the mean liability of cases using the Pearson Aitken equation and compare it to the expected mean liability of cases under a random sampling
+\begin{align}
+\hat{\mu_{sa}}&= \hat{\mu_s}+\hat{R^2}\hat{\mu_{pa}} \\
+\hat{\mu_{su}}&= \hat{\mu_s}+\hat{R^2}\hat{\mu_{pu}} \\
+\hat{R^2}(\hat{\mu_{pa}}-\hat{\mu_{pu}}) &= \hat{\mu_{sa}}-\hat{\mu_{su}}\\
+\hat{\mu_{pa}}-\hat{\mu_{pu}} &= \frac{\hat{\mu_{sa}}-\hat{\mu_{su}}}{\hat{R^2}} \\
+\hat{\mu_{pa}} &= \frac{\hat{\mu_{sa}}-\hat{\mu_{su}}}{\hat{R^2}}+\hat{\mu_{pu}}
+\end{align}
+
+```{r simulation}
+NagelkerkeR2 <- function (rr) 
+{
+    n <- nrow(rr$model)
+    R2 <- (1 - exp((rr$dev - rr$null)/n))/(1 - exp(-rr$null/n))
+    RVAL <- list(N = n, R2 = R2)
+    return(RVAL)
+}
+result_h2l <- function(k, r2n, p) {
+    x <- qnorm(1 - k)
+    z <- dnorm(x)
+    i <- z / k
+    cc <- k * (1 - k) * k * (1 - k) / (z^2 * p * (1 - p))
+    theta <- i * ((p - k)/(1 - k)) * (i * ((p - k) / ( 1 - k)) - x)
+    e <- 1 - p^(2 * p) * (1 - p)^(2 * (1 - p))
+    h2l <- cc * e * r2n / (1 + cc * e * theta * r2n)
+    return(h2l)
+}
+
+qudratic <- function(a,b,c)
+{
+    d <- b^2 - 4*a*c
+    if(d >= 0){
+        f <- (-b+sqrt(b^2-4*a*c))/(2*a)
+        s <- (-b-sqrt(b^2-4*a*c))/2*a
+        return(data.frame(a=f,b=s))
+    }else{
+        return(data.frame(a=NA,b=NA))
+    }
+}
+getPearR <- function(msa,msu,vsu,vpu){
+    deltaP <- qudratic(vsu,-(msa-msu),(msa-msu)^2*(1-vpu))
+    if(sum(is.na(deltaP))==2){
+        return(NA)
+    }
+    return((msa-msu)/max(deltaP))
+}
+
+r2 <- seq(0.1,0.9,0.1)
+sample.size <- 10000000
+prevalence <- seq(0.01,0.5,0.01)
+nselect <- 5000
+sampling <- c("Normal", "Healthy", "Disease")
+portion.selected <- 0.5
+poly.mean <- rnorm(1)
+simulated.result <- expand.grid(Sampling=sampling, Prevalence=prevalence, R2=r2, MeanPA=NA, MeanPU=NA, MeanSA=NA, MeanSU=NA, VarPA=NA,VarPU=NA,VarSA=NA,VarSU=NA, obsR2=NA, leeR2=NA, pearR2=NA)
+for(i in r2)
+{
+    score <- rnorm(sample.size, mean=poly.mean, sd=sqrt(i))
+    environment <- rnorm(sample.size, mean=0, sd=sqrt(1-i))
+    pheno <- (score-poly.mean)+environment
+    info <- data.frame(score, pheno)
+    info <- info[order(info$pheno),]
+    selectR2 <- simulated.result$R2 %in% i
+    for(k in prevalence)
+    {
+        selectK <- selectR2 & simulated.result$Prevalence%in%k
+        threshold <- qnorm(k, lower.tail = F)
+        info$cc <- as.numeric(info$pheno > threshold)
+        case <- info$cc == 1
+        control <- !case
+        for(s in sampling)
+        {
+            controls <- sort(sample(which(control), nselect))
+            ncase <- sum(case)
+            if(s=="Normal")
+            {
+                cases <- sort(sample(which(case), nselect))
+            }else if(s=="Healthy")
+            {
+                cases <- sort(sample(head(which(case), 0.5*ncase), nselect))
+            }else if(s=="Disease"){
+                cases <- sort(sample(tail(which(case), 0.5*ncase), nselect))
+            }
+            obsR2 <- NagelkerkeR2(suppressWarnings(glm(info$cc[c(controls,cases)]~info$score[c(controls,cases)], family=binomial)))$R2
+            
+            
+            selected <- selectK &simulated.result$Sampling %in% s
+            simulated.result$MeanPA[selected] <- mean(info$pheno[cases])
+            simulated.result$MeanPU[selected] <- mean(info$pheno[controls])
+            simulated.result$MeanSA[selected] <- mean(info$score[cases])
+            simulated.result$MeanSU[selected] <- mean(info$score[controls])
+            simulated.result$VarPA[selected] <- var(info$pheno[cases])
+            simulated.result$VarPU[selected] <- var(info$pheno[controls])
+            simulated.result$VarSA[selected] <- var(info$score[cases])
+            simulated.result$VarSU[selected] <- var(info$score[controls])
+            simulated.result$obsR2[selected] <- obsR2
+            simulated.result$leeR2[selected] <- result_h2l(k, obsR2, 0.5)
+            simulated.result$pearR2[selected] <- getPearR(simulated.result$MeanSA[selected],simulated.result$MeanSU[selected],simulated.result$VarSU[selected],vtruncnorm(b=qnorm(k,lower.tail=F)))
+        }
+    }
+}
+#simulated.result$pearR2 <- getPearR(simulated.result$MeanSA,simulated.result$MeanSU,simulated.result$VarSU,vtruncnorm(b=qnorm(simulated.result$Prevalence,lower.tail=F)))
+sim.result <- melt(simulated.result[,-c(4:11)], id=c("Sampling", "Prevalence","R2"))
+ggplot(sim.result)+geom_abline()+theme_bw()+geom_point(aes(x=R2, y=value, color=Prevalence))+scale_color_distiller(palette = "Spectral")+facet_grid(Sampling~variable)
+```
+
+While this graph seems amazing, it is actually expected
+
+# Reference
+
