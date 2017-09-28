@@ -141,7 +141,7 @@ nselect <- 5000
 sampling <- c("Normal", "Healthy", "Disease")
 portion.selected <- 0.5
 poly.mean <- rnorm(1)
-simulated.result <- expand.grid(Sampling=sampling, Prevalence=prevalence, R2=r2, MeanPA=NA, MeanPU=NA, MeanSA=NA, MeanSU=NA, VarPA=NA,VarPU=NA,VarSA=NA,VarSU=NA, obsR2=NA, leeR2=NA, pearR2=NA)
+simulated.result <- expand.grid(Sampling=sampling, Prevalence=prevalence, R2=r2, MeanSA=NA, MeanSU=NA, VarSA=NA,VarSU=NA, bVarSA=NA, bVarSU=NA, obsR2=NA, leeR2=NA, pearR2=NA)
 for(i in r2)
 {
     score <- rnorm(sample.size, mean=poly.mean, sd=sqrt(i))
@@ -174,14 +174,14 @@ for(i in r2)
             
             
             selected <- selectK &simulated.result$Sampling %in% s
-            simulated.result$MeanPA[selected] <- mean(info$pheno[cases])
-            simulated.result$MeanPU[selected] <- mean(info$pheno[controls])
             simulated.result$MeanSA[selected] <- mean(info$score[cases])
             simulated.result$MeanSU[selected] <- mean(info$score[controls])
-            simulated.result$VarPA[selected] <- var(info$pheno[cases])
-            simulated.result$VarPU[selected] <- var(info$pheno[controls])
             simulated.result$VarSA[selected] <- var(info$score[cases])
             simulated.result$VarSU[selected] <- var(info$score[controls])
+            simulated.result$MeanPA[selected] <- mean(info$pheno[cases])
+            simulated.result$MeanPU[selected] <- mean(info$pheno[controls])
+            simulated.result$VarPA[selected] <- var(info$pheno[cases])
+            simulated.result$VarPU[selected] <- var(info$pheno[controls])
             simulated.result$obsR2[selected] <- obsR2
             simulated.result$leeR2[selected] <- result_h2l(k, obsR2, 0.5)
             simulated.result$pearR2[selected] <- getPearR(simulated.result$MeanSA[selected],simulated.result$MeanSU[selected],simulated.result$VarSU[selected],vtruncnorm(b=qnorm(k,lower.tail=F)))
@@ -189,8 +189,8 @@ for(i in r2)
     }
 }
 #simulated.result$pearR2 <- getPearR(simulated.result$MeanSA,simulated.result$MeanSU,simulated.result$VarSU,vtruncnorm(b=qnorm(simulated.result$Prevalence,lower.tail=F)))
-sim.result <- melt(simulated.result[,-c(4:11)], id=c("Sampling", "Prevalence","R2"))
-ggplot(sim.result)+geom_abline()+theme_bw()+geom_point(aes(x=R2, y=value, color=Prevalence))+scale_color_distiller(palette = "Spectral")+facet_grid(Sampling~variable)
+sim.result <- melt(simulated.result[,-c(4:9)], id=c("Sampling", "Prevalence","R2"))
+ggplot(subset(sim.result, Prevalence<0.2))+geom_abline()+theme_bw()+geom_point(aes(x=R2, y=value, color=Prevalence))+scale_color_distiller(palette = "Spectral")+facet_grid(Sampling~variable)
 ```
 
 While this graph seems amazing, it is actually expected
