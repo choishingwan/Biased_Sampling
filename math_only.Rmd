@@ -1,0 +1,72 @@
+---
+title: "Math Only"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+This markdown should only contain the maths, i.e. no simulation is performed here
+
+Assume the disease liability of a trait be $P$ which follows a standard normal distribution with $\mu$=0 and $\sigma^2$=1. In polygenic score analysis, we can state the relationship beween $P$ and the polygenic score $S$ as
+\begin{align}
+P &\sim N(\mu=0,\sigma^2=1) \\
+S &\sim N(\mu_s,\sigma^2_s) \\
+P &= \alpha+\beta S+\epsilon
+\end{align}
+
+The covariance $\sigma_{ps}$ is:
+\begin{align}
+\sigma_{ps} &= \mathrm{cov}(P,S) \\
+&=\mathrm{cov}(\beta S, S) \\
+&= \beta \sigma^2_s
+\end{align}
+
+The coefficient of determination $\rho^2$ between $S$ and $P$ is:
+\begin{align}
+\rho^2 &= \left(\frac{\sigma_{ps}}{\sqrt{\sigma^2_s\sigma^2_p}}\right)^2\\
+ &= \left(\frac{\beta \sigma^2_s}{\sigma_s}\right)^2 \\
+ &= \beta^2 \sigma^2_s
+\end{align}
+
+Based on the Pearson Aitken selection formula, we can obtain the relation of the moments of $S$ and $P$ in the affected ($a$) and unaffected ($u$) samples as
+\begin{align}
+\mu_s&=\mu_{sa}-\sigma_{ps}\mu_{pa} \\
+\mu_s&=\mu_{su}-\sigma_{ps}\mu_{pu} \\
+\sigma^2_s &= \sigma^2_{sa}+\sigma_{ps}^2(1-\sigma^2_{pa}) \\
+\sigma^2_s &= \sigma^2_{su}+\sigma_{ps}^2(1-\sigma^2_{pu}) \\
+\rho^2 &= \frac{\sigma^2_{ps}}{\sigma^2_s}
+\end{align}
+
+In this equation, $\mu_{pu}$ and $\sigma^2_{pu}$ can be directly calculated using the population prevalence $K$. 
+Whereas $\mu_{sa}$, $\mu_{su}$, $\sigma^2_{sa}$ and $\sigma^2_{su}$ can be directly estimated from the polygenic score. 
+
+Therefore, to obtain the adjusted $R^2$, we will have to solve $\mu_s$, $\sigma^2_s$, $\mu_{pa}$, $\sigma^2_{pa}$ and $\sigma^2_{ps}$. While it seems like we have 5 unknowns, $\mu_{pa}$ and $\sigma^2_{pa}$ can be estimated directly once the bias parameter ($\theta$) is known. Thus we only need to estimate $\mu_s$, $\sigma^2_s$, $\sigma^2_{ps}$ and $\theta$.
+
+By some algebra, we've shown that
+\begin{align}
+\mu_{su}-\sigma_{ps}\mu_{pu}&=\mu_{sa}-\sigma_{ps}\mu_{pa} \\
+\sigma_{ps} &= \frac{\mu_{sa}-\mu_{su}}{\mu_{pa}-\mu_{pu}}
+\end{align}
+and
+\begin{align}
+\sigma^2_{su}+\sigma_{ps}^2(1-\sigma^2_{pu}) &= \sigma^2_{sa}+\sigma_{ps}^2(1-\sigma^2_{pa}) \\
+\sigma_{ps}^2 &= \frac{\sigma^2_{sa}-\sigma^2_{su}}{\sigma^2_{pa}-\sigma^2_{pu}}
+\end{align}
+
+Therefore
+\begin{align}
+\frac{\sigma^2_{sa}-\sigma^2_{su}}{\sigma^2_{pa}-\sigma^2_{pu}} &= \left(\frac{\mu_{sa}-\mu_{su}}{\mu_{pa}-\mu_{pu}}\right)^2 \\
+\frac{\sigma^2_{sa}-\sigma^2_{su}}{\sigma^2_{pa}-\sigma^2_{pu}}-\left(\frac{\mu_{sa}-\mu_{su}}{\mu_{pa}-\mu_{pu}}\right)^2 &=0
+\end{align}
+
+If we find a $\theta$ that minimize this solution, we can obtain all the required unknowns.
+
+Problem is, if we use the *optimize* function in R to guess the $\theta$, our estimates are terrible
+![alt text][bias_image]
+
+For one, when we guess the $\theta$, we will need to compute both the left and right biased model and look for the model with the smallest error. 
+As our variance estimates might not be that accurate, the estimates can be off, and this cumulation of error can lead to this terrible performance.
+
+Are there any analytical way for us to obtain a better estimates?
+
+[bias_image]: C:/Users/shingwan/Documents/Biased.png "Biased image"
